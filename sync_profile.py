@@ -8,440 +8,465 @@ import paramiko
 
 
 class SSHKey():
-	key_comment = None
-	key_type = None
-	key_content = None
+    key_comment = None
+    key_type = None
+    key_content = None
 
-	def __init__(self, key):
-		if len(key.strip()) == 0:
-			raise KeyError("Blank Key")
+    def __init__(self, key):
+        if len(key.strip()) == 0:
+            raise KeyError("Blank Key")
 
-		self.key_type, self.key_content, self.key_comment = key.strip().split(" ")
+        self.key_type, self.key_content, self.key_comment = key.strip().split(" ")
 
-	def abridged(self):
-		return "%s (%s)" % ( self.key_comment, self.key_type)
+    def abridged(self):
+        return "%s (%s)" % (self.key_comment, self.key_type)
 
-	def __eq__(self, other):
-		return self.key_comment == other.key_comment and self.key_type == other.key_type
+    def __eq__(self, other):
+        return self.key_comment == other.key_comment and self.key_type == other.key_type
 
-	def __ne__(self, other):
-		return not self.__eq__(other)
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
-	def __str__(self):
-		return "%s %s %s" % ( self.key_type, self.key_content, self.key_comment)
+    def __str__(self):
+        return "%s %s %s" % (self.key_type, self.key_content, self.key_comment)
 
-	def exact(self, other ):
-		return self.key_comment == other.key_comment and self.key_type == other.key_type and self.key_content == other.key_content
+    def exact(self, other):
+        return self.key_comment == other.key_comment and self.key_type == other.key_type and self.key_content == other.key_content
 
 
 class SyncProfile():
-	VERSION = "0.0.1"
+    VERSION = "0.0.1"
 
-	AUTHORIZED_KEYS_REMOTE_PATH = ".ssh/authorized_keys"
-	TEMP_AUTHORIZED_KEYS_LOCAL_PATH = os.path.expanduser("~/.ssh/temp_authorized_keys")
+    AUTHORIZED_KEYS_REMOTE_PATH = ".ssh/authorized_keys"
+    TEMP_AUTHORIZED_KEYS_LOCAL_PATH = os.path.expanduser("~/.ssh/temp_authorized_keys")
 
-	HOSTS_SYNCED_LOCAL_PATH = os.path.expanduser("~/.ssh/synced_hosts")
-	OTHER_KEYS_LOCAL_PATH = os.path.expanduser("~/.ssh/synced_other_keys")
-	PUBLIC_KEY_LOCAL_PATH = os.path.expanduser("~/.ssh/id_rsa.pub")
+    HOSTS_SYNCED_LOCAL_PATH = os.path.expanduser("~/.ssh/synced_hosts")
+    OTHER_KEYS_LOCAL_PATH = os.path.expanduser("~/.ssh/synced_other_keys")
 
-	PUBLIC_KEY = None
-	OTHER_KEYS = None
+    PUBLIC_KEY_LOCAL_PATH = os.path.expanduser("~/.ssh/id_rsa.pub")
 
-	username = getpass.getuser()
-	password = None
+    PUBLIC_KEY = None
+    OTHER_KEYS = None
 
-	local_hostname = socket.gethostname()
+    username = getpass.getuser()
+    password = None
 
-	sftp_client = None
-	ssh_client = None
+    local_hostname = socket.gethostname()
 
-	def __init__(self):
-		self.PUBLIC_KEY = self.read_key_file(self.PUBLIC_KEY_LOCAL_PATH)[0]
-		self.OTHER_KEYS = self.read_file(self.OTHER_KEYS_LOCAL_PATH)
+    sftp_client = None
+    ssh_client = None
 
-		self.banner()
+    def __init__(self):
+        self.PUBLIC_KEY = self.read_key_file(self.PUBLIC_KEY_LOCAL_PATH)[0]
+        self.OTHER_KEYS = self.read_file(self.OTHER_KEYS_LOCAL_PATH)
 
-		length = len(sys.argv)
-		arg_min = 1
-		arg_max = 2
+        self.banner()
 
-		if len(sys.argv) < arg_min + 1 or len(sys.argv) > arg_max + 1:
-			print "Must pass a valid command"
-			self.show_help()
+        length = len(sys.argv)
+        arg_min = 1
+        arg_max = 2
 
-		else:
-			command = sys.argv[1].lower()
+        if len(sys.argv) < arg_min + 1 or len(sys.argv) > arg_max + 1:
+            print "Must pass a valid command"
+            self.show_help()
 
-			if length == 3:
-				host = sys.argv[2].lower()
+        else:
+            command = sys.argv[1].lower()
 
-				if host == "all":
+            if length == 3:
+                host = sys.argv[2].lower()
 
-					if command == "register":
-						self.register_all_hosts()
+                if host == "all":
 
-					elif command == "unregister":
-						self.unregister_all_hosts()
+                    if command == "register":
+                        self.register_all_hosts()
 
-					else:
-						self.line("Invalid command '%s'" % command)
-						self.show_help()
+                    elif command == "unregister":
+                        self.unregister_all_hosts()
 
-				elif command == "unregister":
-					self.unregister_host(host)
+                    else:
+                        self.line("Invalid command '%s'" % command)
+                        self.show_help()
 
-				elif command == "register":
-					self.register_host(host)
+                elif command == "unregister":
+                    self.unregister_host(host)
 
-				else:
-					self.line("Invalid command '%s'" % command)
-					self.show_help()
+                elif command == "register":
+                    self.register_host(host)
 
-			elif command == "list":
-				self.show_sync_hosts()
+                elif command == "exclude-key":
+                    self.exclude_key(host)
 
-			elif command == "help":
-				self.show_help()
+                elif command == "include-key":
+                    self.include_key(host)
 
-			else:
-				self.line("Invalid command '%s'" % command)
-				self.show_help()
+                else:
+                    self.line("Invalid command '%s'" % command)
+                    self.show_help()
 
-	def banner(self):
-		self.log()
-		self.log("SSH Key Sync - v%s" % self.VERSION, True)
-		self.log()
+            elif command == "list":
+                self.show_sync_hosts()
 
-		self.line("User: '%s'" % self.username)
-		self.line("Local Hostname: '%s'" % self.local_hostname)
-		self.line("Active Key: '%s'" % self.PUBLIC_KEY.abridged())
-		self.log()
-		self.line()
+            elif command == "help":
+                self.show_help()
 
-	def show_help(self):
-		self.line("usage: %s CMD <HOST>" % "sync_profile")
-		self.line()
-		self.line("Valid Commands")
-		self.line("  - help                      this documentation")
-		self.line("  - list                      lists hosts synced")
-		# self.line("  - clean <HOST>              remove all .ssh folders")
-		self.line("  - register <HOST>           adds key is on host")
-		self.line("  - unregister <HOST>         remove public key from host")
-		self.line()
-		self.line("NOTE: Host can be replaced by 'all' to reflect all hosts in other hosts file.")
-		self.line()
+            else:
+                self.line("Invalid command '%s'" % command)
+                self.show_help()
 
-	def show_sync_hosts(self):
-		contents = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
-		line = "Listing hosts:\n - " + "\n - ".join(contents)
+    def banner(self):
+        self.log()
+        self.log("SSH Key Sync - v%s" % self.VERSION, True)
+        self.log()
 
-		self.line(line)
-		self.line()
+        self.line("User: '%s'" % self.username)
+        self.line("Local Hostname: '%s'" % self.local_hostname)
+        self.line("Active Key: '%s'" % self.PUBLIC_KEY.abridged())
+        self.log()
+        self.line()
 
-	def register_host(self, host_name):
-		self.log()
-		self.line("Registering '%s'" % host_name)
-		self.log()
+    def show_help(self):
+        self.line("usage: %s CMD <HOST>" % "sync_profile")
+        self.line()
+        self.line("Valid Commands")
+        self.line("  - help                      this documentation")
+        self.line("  - list                      lists hosts synced")
+        # self.line("  - clean <HOST>              remove all .ssh folders")
+        self.line()
+        self.line("  - register <HOST>           adds key is on host")
+        self.line("  - unregister <HOST>         remove public key from host")
+        self.line()
+        self.line("  - exclude-key <KEY COMMENT> adds key is on host")
+        self.line("  - include-key <KEY COMMENT> remove public key from host")
+        self.line()
+        self.line("NOTE: Host can be replaced by 'all' to reflect all hosts in other hosts file.")
+        self.line()
 
-		self.login(host_name)
+    def exclude_key(self, key):
+        self.OTHER_KEYS += [key]
+        self.line("Adding key comment '%s' to exclude list." % key )
+        self.save_file(self.OTHER_KEYS_LOCAL_PATH, self.OTHER_KEYS)
+        self.line("Saved!")
 
-		self.get_key()
+    def include_key(self, key):
+        if key in self.OTHER_KEYS:
+            self.OTHER_KEYS.remove(key)
+        # self.OTHER_KEYS += [key]
+            self.line("Removing key comment '%s' from exclude list." % key)
+            self.save_file(self.OTHER_KEYS_LOCAL_PATH, self.OTHER_KEYS)
+            self.line("Saved!")
+        else:
+            self.line("Could not find '%s' in exclude list." % key)
 
-		new_keys = self.generate_new_authorized_keys()
-		self.save_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, new_keys)
+    def show_sync_hosts(self):
+        contents = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
 
-		self.put_key()
+        self.line("Listing hosts:\n - %s" % "\n - ".join(contents))
+        self.line()
 
-		self.remove_local_host_key()
+        self.line("Listing ssh key comments to exclude:\n - %s" % "\n - ".join(self.OTHER_KEYS))
 
-		self.disconnect()
+    def register_host(self, host_name):
+        self.log()
+        self.line("Registering '%s'" % host_name)
+        self.log()
 
-		self.save_host(host_name)
+        self.login(host_name)
 
-		self.log()
-		self.log()
-		self.line()
+        self.get_key()
 
-	def unregister_host(self, host_name):
-		self.line("Unregistering '%s'" % host_name)
-		self.log()
+        new_keys = self.generate_new_authorized_keys()
+        self.save_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, new_keys)
 
-		self.login(host_name)
+        self.put_key()
 
-		self.get_key()
+        self.remove_local_host_key()
 
-		new_keys = self.generate_new_authorized_keys(False)
-		self.save_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, new_keys)
+        self.disconnect()
 
-		self.put_key()
+        self.save_host(host_name)
 
-		self.remove_local_host_key()
+        self.log()
+        self.log()
+        self.line()
 
-		self.disconnect()
+    def unregister_host(self, host_name):
+        self.line("Unregistering '%s'" % host_name)
+        self.log()
 
-		# self.save_host(host_name, False)
+        self.login(host_name)
 
-		self.log()
-		self.log()
-		self.line()
+        self.get_key()
 
-	def generate_new_authorized_keys(self, include=True):
-		host_keys = self.read_key_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
+        new_keys = self.generate_new_authorized_keys(False)
+        self.save_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, new_keys)
 
-		new_host_keys = []
-		removing_keys = []
+        self.put_key()
 
-		self.log("Generating authorized_keys file ... ", True)
-		added_self = False
+        self.remove_local_host_key()
 
-		for host_key in host_keys:
+        self.disconnect()
 
-			if include and host_key == self.PUBLIC_KEY and host_key.key_content == self.PUBLIC_KEY.key_content:
-				self.line(" found this host, keeping ")
-				new_host_keys.append(self.PUBLIC_KEY)
-				added_self = True
+        # self.save_host(host_name, False)
 
-			elif include and host_key == self.PUBLIC_KEY and host_key.key_content != self.PUBLIC_KEY.key_content:
-				self.line(" found this host, resetting ")
-				new_host_keys.append(self.PUBLIC_KEY)
-				added_self = True
+        self.log()
+        self.log()
+        self.line()
 
-			elif host_key.key_comment in self.OTHER_KEYS and host_key != self.PUBLIC_KEY:
-				self.line(" keeping '%s'" % host_key.abridged())
-				new_host_keys.append(host_key)
+    def generate_new_authorized_keys(self, include=True):
+        host_keys = self.read_key_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
 
-			else:
-				if include and host_key == self.PUBLIC_KEY:
-					self.line(" removing this host")
-				else:
-					self.line(" removing '%s'" % host_key.abridged())
+        new_host_keys = []
+        removing_keys = []
 
-				removing_keys.append(host_key)
+        self.log("Generating authorized_keys file ... ", True)
+        added_self = False
 
-		if include and not added_self:
-			self.log(" adding this host ", True)
-			new_host_keys.append(self.PUBLIC_KEY)
+        for host_key in host_keys:
+            if include and host_key == self.PUBLIC_KEY and host_key.key_content == self.PUBLIC_KEY.key_content:
+                self.line(" found this host, keeping ")
+                new_host_keys.append(self.PUBLIC_KEY)
+                added_self = True
 
-		return new_host_keys
+            elif include and host_key == self.PUBLIC_KEY and host_key.key_content != self.PUBLIC_KEY.key_content:
+                self.line(" found this host, resetting ")
+                new_host_keys.append(self.PUBLIC_KEY)
+                added_self = True
 
-	def get_key(self):
-		self.log("Getting authorized_keys file ... ")
+            elif host_key.key_comment in self.OTHER_KEYS and host_key != self.PUBLIC_KEY:
+                self.line(" keeping '%s'" % host_key.abridged())
+                new_host_keys.append(host_key)
 
-		self.get_file(self.AUTHORIZED_KEYS_REMOTE_PATH, self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
+            else:
+                if include and host_key == self.PUBLIC_KEY:
+                    self.line(" removing this host")
+                else:
+                    self.line(" removing '%s'" % host_key.abridged())
 
-		self.log_done()
+                removing_keys.append(host_key)
 
-	def put_key(self):
-		self.log("Putting authorized_keys file ... ")
+        if include and not added_self:
+            self.log(" adding this host ", True)
+            new_host_keys.append(self.PUBLIC_KEY)
 
-		self.put_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, self.AUTHORIZED_KEYS_REMOTE_PATH)
+        return new_host_keys
 
-		self.log_done()
+    def get_key(self):
+        self.log("Getting authorized_keys file ... ")
 
-	def remove_local_host_key(self):
-		os.remove(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
+        self.get_file(self.AUTHORIZED_KEYS_REMOTE_PATH, self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
 
-	def login(self, host_name):
-		self.open_ssh(host_name)
-		self.open_sftp()
+        self.log_done()
 
-		self.ensure_ssh_folder()
+    def put_key(self):
+        self.log("Putting authorized_keys file ... ")
 
-	def open_ssh(self, host_name):
-		self.ssh_client = paramiko.SSHClient()
-		self.ssh_client.load_system_host_keys()
-		self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.put_file(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH, self.AUTHORIZED_KEYS_REMOTE_PATH)
 
-		# TODO: setting the password here, should figure out a way to test the last and if it didn't work reprompt
-		# based on the server that's trying to connect
+        self.log_done()
 
-		connected = False
-		attempts = 0
-		while attempts < 3 and not connected:
-			try:
-				self.log("Connecting to %s ... " % host_name, False)
+    def remove_local_host_key(self):
+        os.remove(self.TEMP_AUTHORIZED_KEYS_LOCAL_PATH)
 
-				self.ssh_client.connect(host_name, username=self.username, password=self.password)
+    def login(self, host_name):
+        self.open_ssh(host_name)
+        self.open_sftp()
 
-				self.log_done()
-				connected = True
-			except paramiko.AuthenticationException:
-				self.line("FAILED")
-				self.password = None
+        self.ensure_ssh_folder()
 
-			if not connected:
-				attempts += 1
+    def open_ssh(self, host_name):
+        self.ssh_client = paramiko.SSHClient()
+        self.ssh_client.load_system_host_keys()
+        self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-				try:
-					self.set_password()
-				except KeyboardInterrupt as e:
-					self.log("")
-					self.log("")
-					self.log("Aborting...")
-					sys.exit(1)
+        # TODO: setting the password here, should figure out a way to test the last and if it didn't work reprompt
+        # based on the server that's trying to connect
 
-		if not connected:
-			self.line()
-			self.line()
-			self.line("Sorry, you were unable to connect to host '%s'" % host_name)
-			self.line()
-			sys.exit(1)
+        connected = False
+        attempts = 0
+        while attempts < 3 and not connected:
+            try:
+                self.log("Connecting to %s ... " % host_name, False)
 
+                self.ssh_client.connect(host_name, username=self.username, password=self.password)
 
-	def open_sftp(self):
-		self.log("Opening SFTP connection ... ", False)
-		self.sftp_client = self.ssh_client.open_sftp()
-		self.log_done()
+                self.log_done()
+                connected = True
+            except paramiko.AuthenticationException:
+                self.line("FAILED")
+                self.password = None
 
-	def disconnect(self):
-		self.log("Closing SFTP ... ", False)
-		self.sftp_client.close()
-		self.log_done()
+            if not connected:
+                attempts += 1
 
-		self.log("Closing SSH ... ", False)
-		self.ssh_client.close()
-		self.log_done()
+                try:
+                    self.set_password()
+                except KeyboardInterrupt as e:
+                    self.log("")
+                    self.log("")
+                    self.log("Aborting...")
+                    sys.exit(1)
 
-	def put_file(self, source, dest, mode=0600):
-		self.sftp_client.put(source, dest)
+        if not connected:
+            self.line()
+            self.line()
+            self.line("Sorry, you were unable to connect to host '%s'" % host_name)
+            self.line()
+            sys.exit(1)
 
-		self.sftp_client.chmod(dest, mode)
+    def open_sftp(self):
+        self.log("Opening SFTP connection ... ", False)
+        self.sftp_client = self.ssh_client.open_sftp()
+        self.log_done()
 
-	def read_key_file(self, file_path):
-		contents = self.read_file(file_path)
-		keys = []
+    def disconnect(self):
+        self.log("Closing SFTP ... ", False)
+        self.sftp_client.close()
+        self.log_done()
 
-		for key in contents:
-			try:
-				ssh_key = SSHKey(key.strip())
-				keys.append(ssh_key)
-			except KeyError:
-				print "An invalid entry was found in this ssh file '%s'" % file_path
+        self.log("Closing SSH ... ", False)
+        self.ssh_client.close()
+        self.log_done()
 
-		return keys
+    def put_file(self, source, dest, mode=0600):
+        self.sftp_client.put(source, dest)
 
-	def save_host(self, host_name, include=True):
-		self.log("Updating other hosts file ... ")
+        self.sftp_client.chmod(dest, mode)
 
-		contents = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
+    def read_key_file(self, file_path):
+        contents = self.read_file(file_path)
+        keys = []
 
-		hosts = []
+        for key in contents:
+            try:
+                ssh_key = SSHKey(key.strip())
+                keys.append(ssh_key)
+            except KeyError:
+                print "An invalid entry was found in this ssh file '%s'" % file_path
 
-		for host in contents:
-			if len(host) > 0 and not host in hosts:
-				if include and host_name == host:
-					hosts.append(host_name)
+        return keys
 
-				elif host_name != host and not host in hosts:
-					hosts.append(host)
+    def save_host(self, host_name, include=True):
+        self.log("Updating other hosts file ... ")
 
-		if include and not host_name in hosts:
-			hosts.append(host_name)
+        contents = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
 
-		self.save_file(self.HOSTS_SYNCED_LOCAL_PATH, hosts)
+        hosts = []
 
-		self.log_done()
+        for host in contents:
+            if len(host) > 0 and not host in hosts:
+                if include and host_name == host:
+                    hosts.append(host_name)
 
-	def set_password(self):
-		if self.password is None:
-			self.password = getpass.getpass()
+                elif host_name != host and not host in hosts:
+                    hosts.append(host)
 
-	def line(self, msg=""):
-		self.log(msg, True)
+        if include and not host_name in hosts:
+            hosts.append(host_name)
 
-	def log(self, msg=None, new_line=False):
-		if msg is None:
-			msg = "=" * 80
-			new_line = True
+        self.save_file(self.HOSTS_SYNCED_LOCAL_PATH, hosts)
 
-		elif len(msg) == 0:
-			new_line = True
+        self.log_done()
 
-		if new_line:
-			sys.stdout.write(msg + "\n")
-		else:
-			sys.stdout.write(msg)
+    def set_password(self):
+        if self.password is None:
+            self.password = getpass.getpass()
 
-	def log_done(self):
-		self.log("DONE", True)
+    def line(self, msg=""):
+        self.log(msg, True)
 
-	def save_new_keys(self, new_host_keys):
-		self.log("Saving new authorized_keys file ... ")
-		file_contents = []
+    def log(self, msg=None, new_line=False):
+        if msg is None:
+            msg = "=" * 80
+            new_line = True
 
-		for key in new_host_keys:
-			file_contents.append(key.for_save())
+        elif len(msg) == 0:
+            new_line = True
 
-		self.log_done()
+        if new_line:
+            sys.stdout.write(msg + "\n")
+        else:
+            sys.stdout.write(msg)
 
-	def read_file(self, file_path):
-		contents = []
+    def log_done(self):
+        self.log("DONE", True)
 
-		if not os.path.exists(file_path):
-			return contents
+    def save_new_keys(self, new_host_keys):
+        self.log("Saving new authorized_keys file ... ")
+        file_contents = []
 
-		open_file = open(file_path)
+        for key in new_host_keys:
+            file_contents.append(key.for_save())
 
-		while 1:
+        self.log_done()
 
-			line = open_file.readline().strip()
+    def read_file(self, file_path):
+        contents = []
 
-			if not line:
-				break
+        if not os.path.exists(file_path):
+            return contents
 
-			if len(line) > 0:
-				contents.append(line)
+        open_file = open(file_path)
 
-		return contents
+        while 1:
 
-	def get_file(self, source, dest):
-		if self.remote_path_exists(source):
-			self.sftp_client.get(source, dest)
-		else:
-			self.save_file(dest, "")
+            line = open_file.readline().strip()
 
-	def save_file(self, path, contents):
-		if type(contents) is list:
-			contents = "\n".join(str(i) for i in contents)
+            if not line:
+                break
 
-		elif type(contents) is not str:
-			raise Exception("contents is not a string or a list, it's a %s" % type(contents))
+            if len(line) > 0:
+                contents.append(line)
 
-		myFile = open(path, 'w')
-		myFile.write(contents + "\n")
-		myFile.close()
+        return contents
 
-	def register_all_hosts(self):
+    def get_file(self, source, dest):
+        if self.remote_path_exists(source):
+            self.sftp_client.get(source, dest)
+        else:
+            self.save_file(dest, "")
 
-		self.line("Registering all hosts...")
+    def save_file(self, path, contents):
+        if type(contents) is list:
+            contents = "\n".join(str(i) for i in contents)
 
-		hosts = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
+        elif type(contents) is not str:
+            raise Exception("contents is not a string or a list, it's a %s" % type(contents))
 
-		for host in hosts:
-			self.register_host(host)
+        myFile = open(path, 'w')
+        myFile.write(contents + "\n")
+        myFile.close()
 
-	def unregister_all_hosts(self):
-		self.line("Unregistering all hosts...")
+    def register_all_hosts(self):
 
-		hosts = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
+        self.line("Registering all hosts...")
 
-		for host in hosts:
-			self.unregister_host(host)
+        hosts = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
 
-	def ensure_ssh_folder(self):
-		if not ".ssh" in self.sftp_client.listdir("."):
-			self.sftp_client.mkdir(".ssh")
-			self.line("Creating .ssh folder on host.")
+        for host in hosts:
+            self.register_host(host)
 
-		self.sftp_client.chmod(".ssh", 0700)
+    def unregister_all_hosts(self):
+        self.line("Unregistering all hosts...")
 
+        hosts = self.read_file(self.HOSTS_SYNCED_LOCAL_PATH)
 
-	def remote_path_exists(self, file_path):
-		dirname = os.path.dirname(file_path)
-		basename = os.path.basename(file_path)
+        for host in hosts:
+            self.unregister_host(host)
 
-		return basename in self.sftp_client.listdir(dirname)
+    def ensure_ssh_folder(self):
+        if not ".ssh" in self.sftp_client.listdir("."):
+            self.sftp_client.mkdir(".ssh")
+            self.line("Creating .ssh folder on host.")
+
+        self.sftp_client.chmod(".ssh", 0700)
+
+    def remote_path_exists(self, file_path):
+        dirname = os.path.dirname(file_path)
+        basename = os.path.basename(file_path)
+
+        return basename in self.sftp_client.listdir(dirname)
 
 
 if __name__ == "__main__":
-	SyncProfile()
+    SyncProfile()
